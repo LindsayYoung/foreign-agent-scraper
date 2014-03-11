@@ -1,5 +1,4 @@
 ipython
 BeautifulSoup4
-lxml
 cssselect
 argparse

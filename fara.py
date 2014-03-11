@@ -43,23 +43,14 @@ def scrape():
         end_date = datetime.date.today()
 
     url = 'https://efile.fara.gov/pls/apex/f?p=125:10:::NO::P10_DOCTYPE:ALL'
-    #page = urllib2.urlopen(url).read()
     search_html = urllib2.urlopen(url).read()
-    #doc = lxml.html.fromstring(page)
     search_page = BeautifulSoup(search_html)
-    #form = doc.cssselect('form')[0]
     form = search_page.find("form", {"id":"wwvFlowForm"})
-
 
     data = []
     for input in form.findAll('input'):
-        #if input.attrib.get('name'):
         if input.has_key('name'):
-            #if input.attrib['name'] in ('p_t01', 'p_t02', 'p_t06', 'p_t07', 'p_request'):
             if input['name'] not in ('p_t01', 'p_t02', 'p_t06', 'p_t07', 'p_request'):
-                
-                #continue
-            #data.append((input.attrib['name'], input.attrib['value']))
                 data.append((input['name'], input['value']))
     
     data += [('p_t01', 'ALL'),
