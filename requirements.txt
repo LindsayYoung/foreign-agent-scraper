@@ -1,4 +1,3 @@
 ipython
 BeautifulSoup4
-cssselect
 argparse
