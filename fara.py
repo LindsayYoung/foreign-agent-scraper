@@ -6,7 +6,6 @@ import time
 import urllib
 import urllib2
 import string
-#import lxml.html
 import argparse
 #import logging
 
