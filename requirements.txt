@@ -1,3 +1,4 @@
 ipython
 BeautifulSoup4
 argparse
+PyPDF2

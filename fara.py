@@ -1,4 +1,3 @@
-# this is modified from Arron's reporting feed for the lobbying tracker in "Willard"
 import datetime
 import re
 import sys
@@ -7,20 +6,14 @@ import urllib
 import urllib2
 import string
 import argparse
-#import logging
-
-#from django.core.management.base import BaseCommand, CommandError
-#from django.core.files.storage import default_storage
+import os
+import codecs
 
 from bs4 import BeautifulSoup
-from optparse import make_option
-
-#from fara_feed.models import Document
-
-#logging.basicConfig()
-#logger = logging.getLogger(__name__)
+from PyPDF2 import PdfFileReader
 
 documents = []
+fara_url = 'https://efile.fara.gov/pls/apex/wwv_flow.accept'
 
 def scrape():
     if __name__ == '__main__':
@@ -29,14 +22,23 @@ def scrape():
                         help='A positional argument for dates. This is a range of dates. \
                         Date ranges should be given as start date then end \
                         date YYYY-MM-DD:YYYY-MM-DD. By default it will parse the last 25 days')
+        parser.add_argument('-od', '--outdir', dest='outdir', action='store',
+                        help='An output directory for the parsed content')
 
     args = parser.parse_args()
+    if args.outdir:
+        outdir = args.outdir
+    else:
+        this_filename = os.path.abspath(__file__)
+        this_parent_dir = os.path.dirname(this_filename) 
+        outdir = os.path.join(this_parent_dir, "output")
+        if not os.path.exists(outdir):
+            os.mkdir(outdir)
+
     if args.date_range:
         dates = args.date_range[0].split(':')
         start_date = datetime.datetime.strptime(dates[0], "%Y-%m-%d")
-        print start_date
         end_date = datetime.datetime.strptime(dates[1], "%Y-%m-%d")
-        print end_date
     else:
         start_date = datetime.date.today() - datetime.timedelta(days=25)
         end_date = datetime.date.today()
@@ -48,7 +50,7 @@ def scrape():
 
     data = []
     for input in form.findAll('input'):
-        if input.has_key('name'):
+        if input.has_attr('name'):
             if input['name'] not in ('p_t01', 'p_t02', 'p_t06', 'p_t07', 'p_request'):
                 data.append((input['name'], input['value']))
     
@@ -60,99 +62,92 @@ def scrape():
     ]
    
     url = 'https://efile.fara.gov/pls/apex/wwv_flow.accept'
-
     req = urllib2.Request(url, data=urllib.urlencode(data))
-    print "- Looking at url %s -" %(url)
+    
     page = urllib2.urlopen(req).read()
     page = BeautifulSoup(page)
-    parse_and_save(page)
+    parse_and_save(page, outdir)
+    next_url_realitive = page.find("a", {"class":"t14pagination"})
 
-    #looking for additional pages of results 
-    url_end = page.find("a", {"class":"t14pagination"})
-    count = 0 
-    
-    while url_end != "None" and url_end != None:
-
-        url_end = str(url_end)
-        url_end = url_end.replace('&amp;', '&')
-        url_end = re.sub('<a class="t14pagination" href="', '/', url_end) 
-        url_end = re.sub('">Next &gt;</a>', '', url_end)
-        next_url = 'https://efile.fara.gov/pls/apex' + url_end
-        
+    while next_url_realitive != None:
+        url_end = next_url_realitive['href']
+        next_url = 'https://efile.fara.gov/pls/apex/' + url_end
         req = urllib2.Request(next_url)
         page = urllib2.urlopen(req).read()
         page = BeautifulSoup(page)
-        new_info = parse_and_save(page)
+        parse_and_save(page, outdir)
+        next_url_realitive = page.find("a", {"class":"t14pagination"})
         
-        url_end = page.findAll("a", {"class":"t14pagination"})
-        
-        if len(url_end) > 1:
-            url_end = url_end[1]
-        else: 
-            break
-        
-        #new_info = parse_and_save(url_end)
 
+def save_text(url, url_info, outdir):
+    print "making file for %s" %(url)
+    file_name = str(url[25:-4]) + ".txt"
 
-def pdf2htmlEX(): 
-    return true
+    # set up paths
+    metadata_path = os.path.join(outdir, "metadata")
+    if not os.path.exists(metadata_path):
+        os.mkdir(metadata_path)
+    metadata_file_name = os.path.join(outdir, "metadata", file_name)
 
+    document_path = os.path.join(outdir, "documents")
+    if not os.path.exists(document_path):
+        os.mkdir(document_path)
+    doc_file_name = os.path.join(document_path, file_name)
 
-def add_document(url_info):
-    document = Document(url = url_info[0],
-        reg_id = url_info[1],
-        doc_type = url_info[2],
-        stamp_date = url_info[3],
-    )
-    document.save()
-    
-def add_file(url):
-    if url[:25] != "http://www.fara.gov/docs/":
-        message = 'bad link ' + url
-        logger.error(message)
-    
+    # create metadata 
+    if not os.path.isfile(metadata_file_name):
+        doc_file =  open(metadata_file_name, 'w')
+        doc_file.write(str(url_info))
+        doc_file.close()
+   
+    # download pdf and make text file
+    if not os.path.isfile(doc_file_name):
+        doc_file =  open(doc_file_name, 'w')
+        print "download %s" % (doc_file_name)
+        pdf = urllib2.urlopen(url)
+        localFile = open("temp.pdf", 'w')
+        localFile = localFile.write(pdf.read())
+        tempDoc = file("temp.pdf", "rb")
+        pdf_file = PdfFileReader(tempDoc)
+        pages = pdf_file.getNumPages()
+        text_file = codecs.open(doc_file_name, encoding='utf-8', mode='wb')
+
+        #looping through the pages and putting the contents in to a text document
+        count = 0
+        while count < pages:
+            pg = pdf_file.getPage(count)
+            pgtxt = pg.extractText()
+            count = count + 1
+            text_file.write(pgtxt) 
+
+        text_file.close()
+        os.remove("temp.pdf")
     else:
-        file_name = "pdfs/" + url[25:]
-        if not default_storage.exists(file_name):
-            try:
-                url = str(url)
-                u = urllib2.urlopen(url)
-                localFile = default_storage.open(file_name, 'w')
-                localFile.write(u.read())
-                doc = Document.objects.get(url=url)
-                doc.uploaded = True
-                doc.save() 
-            except:
-                message = 'bad upload ' + url
-                logger.error(message)
-        else:
-            doc = Document.objects.get(url=url)
-            if doc.uploaded != True:  
-                doc.uploaded = True
-                doc.save()
+        print "found %s " % (doc_file_name)
 
 
-def parse_and_save(page):
-
+def parse_and_save(page, outdir):
     filings = page.find("table", {"class" : "t14Standard"})
     new_fara_docs = []
-    
 
     for l in filings.find_all("tr"):
-        row = str(l)
-        url = str(re.findall(r'href="(.*?)"', row))
-        url = str(url)
-        url = re.sub("\['",'', re.sub("'\]", '', url))
+        url = l.find('a')['href']
     
         if url[:4] == "http":
-            stamp_date = l.find_all('td',{"headers" : "STAMPED/RECEIVEDDATE"})
-            stamp_date = str(stamp_date)[-16:-6]
-            stamp_date_obj = datetime.datetime.strptime(stamp_date, "%m/%d/%Y")
+            stamp_date = l.find('td',{"headers" : "STAMPED/RECEIVEDDATE"})
+            stamp_date = stamp_date.text
+            try:
+                stamp_date_obj = datetime.datetime.strptime(stamp_date, "%m/%d/%Y")
+            except:
+                # just in case there is a problem with the form
+                print "parsing date stamp date from url- %s" %(url)
+                stamp_date = re.findall(r'\d{8}', url)
+                stamp_date = stamp_date[0]
+                stamp_date_obj = datetime.datetime.strptime(stamp_date, "%Y%m%d")
+            date_string = stamp_date_obj.strftime('%Y-%m-%d')    
 
-            # checking to see if I had it
-            #if Document.objects.filter(url = url).exists():
-            #    add_file(url)
-           # else:     
+            reg_name = l.find('td',{"headers" : "REGISTRANTNAME"})
+            reg_name = reg_name.text    
             reg_id = re.sub('-','', url[25:29])
             reg_id = re.sub('S','', reg_id)
             reg_id = re.sub('L','', reg_id)
@@ -183,29 +178,16 @@ def parse_and_save(page):
                 doc_type = 'Supplemental' 
 
             else:
-                message = "Can't identify form-- " + url
-                logger.error(message)
+                message = "Can't identify form-- %s " % (url)
+                doc_type = 'unknown'
+                print message
 
-            if stamp_date_obj != None:
-                try:
-                    stamp_date = re.findall(r'\d{8}', url)
-                    stamp_date = stamp_date[0]
-                    stamp_date_obj = datetime.datetime.strptime(stamp_date, "%Y%m%d")
-                except:
-                    stamp_date_obj = datetime.date.today()
-
-            date_string = stamp_date_obj.strftime('%Y-%m-%d')
-
-            url_info= {'url':url, 'reg_id':reg_id, 'doc_type':doc_type, 'stamp_date':date_string}
-            print url_info, "\n"
+            url_info= {'url':url,'reg_name':reg_name,  'reg_id':reg_id, 'doc_type':doc_type, 'stamp_date':date_string}
             documents.append(url_info)
-            #saves url info
-            #add_document(url_info)
-            #add_file(url)
-            #new_fara_docs.append(url_info)
-                
-                   
+            save_text(url, url_info, outdir)
+        
 scrape()
+
 
 
 
